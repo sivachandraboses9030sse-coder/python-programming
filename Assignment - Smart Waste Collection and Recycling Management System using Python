@@ -1,0 +1,186 @@
+import os
+import re
+import customtkinter as ctk
+from tkinter import messagebox
+
+# Configure CustomTkinter appearance
+ctk.set_appearance_mode("System")
+ctk.set_default_color_theme("blue")
+
+# Global Data Structures
+VALID_CATEGORIES = {"Plastic", "Paper", "Glass", "Metal", "Organic"}  # Set
+RECYCLABLE_RATES = {                                                  # Dictionary
+   "Plastic": 0.85,
+   "Paper": 0.90,
+   "Glass": 0.95,
+   "Metal": 0.98,
+   "Organic": 0.00
+}
+FILE_NAME = "waste_records.txt"
+
+
+class WasteManagementSystem:
+   def __init__(self):
+       # Core Data Structure: Dictionary of Tuples
+       # Format: { Record_ID: (Date, Category, Weight_kg, Location, Status) }
+       self.records_dict = {}
+       self.load_from_file()
+
+   def validate_date(self, date_str: str) -> bool:
+       """Validates date format YYYY-MM-DD using string regex."""
+       pattern = r"^\d{4}-\d{2}-\d{2}$"
+       return bool(re.match(pattern, date_str.strip()))
+
+   def clean_string(self, input_str: str) -> str:
+       """Cleans and normalizes string inputs."""
+       return input_str.strip().title()
+
+   def add_record(self, rec_id: str, date: str, category: str, weight: float, location: str) -> bool:
+       """Adds or updates a dictionary entry with a tuple value."""
+       rec_id = rec_id.strip().upper()
+       category = self.clean_string(category)
+       location = self.clean_string(location)
+
+       if not rec_id or category not in VALID_CATEGORIES:
+           return False
+       if not self.validate_date(date) or weight <= 0:
+           return False
+
+       status = "Recyclable" if RECYCLABLE_RATES.get(category, 0) > 0 else "Non-Recyclable"
+       # Tuple containing record details stored under the Record ID key
+       record_tuple = (date, category, float(weight), location, status)
+       self.records_dict[rec_id] = record_tuple
+       self.save_to_file()
+       return True
+
+   def delete_record(self, rec_id: str) -> bool:
+       """Removes a record tuple from dictionary using key."""
+       if rec_id in self.records_dict:
+           del self.records_dict[rec_id]
+           self.save_to_file()
+           return True
+       return False
+
+   def save_to_file(self):
+       """Saves dictionary of tuples to text file (CO4: File Handling)."""
+       with open(FILE_NAME, "w") as f:
+           for rec_id, t in self.records_dict.items():
+               f.write(f"{rec_id},{t[0]},{t[1]},{t[2]},{t[3]},{t[4]}\n")
+
+   def load_from_file(self):
+       """Loads data from text file into dictionary of tuples."""
+       self.records_dict = {}
+       if os.path.exists(FILE_NAME):
+           with open(FILE_NAME, "r") as f:
+               for line in f:
+                   parts = line.strip().split(",")
+                   if len(parts) == 6:
+                       # Map Key -> Tuple (Date, Category, Weight, Location, Status)
+                       self.records_dict[parts[0]] = (parts[1], parts[2], float(parts[3]), parts[4], parts[5])
+
+
+# --- CustomTkinter GUI Dashboard ---
+class WasteGUI(ctk.CTk):
+   def __init__(self, system: WasteManagementSystem):
+       super().__init__()
+       self.sys = system
+       self.title("Smart Waste Collection Dashboard (Dictionary of Tuples)")
+       self.geometry("850x600")
+       self.resizable(False, False)
+
+       self.lbl_title = ctk.CTkLabel(self, text="Smart Waste Collection & Recycling System", font=ctk.CTkFont(size=20, weight="bold"))
+       self.lbl_title.pack(pady=15)
+
+       self.input_frame = ctk.CTkFrame(self)
+       self.input_frame.pack(pady=10, padx=20, fill="x")
+
+       ctk.CTkLabel(self.input_frame, text="ID:").grid(row=0, column=0, padx=5, pady=5)
+       self.ent_id = ctk.CTkEntry(self.input_frame, width=80)
+       self.ent_id.grid(row=0, column=1, padx=5, pady=5)
+
+       ctk.CTkLabel(self.input_frame, text="Date (YYYY-MM-DD):").grid(row=0, column=2, padx=5, pady=5)
+       self.ent_date = ctk.CTkEntry(self.input_frame, width=110)
+       self.ent_date.grid(row=0, column=3, padx=5, pady=5)
+
+       ctk.CTkLabel(self.input_frame, text="Category:").grid(row=0, column=4, padx=5, pady=5)
+       self.opt_cat = ctk.CTkOptionMenu(self.input_frame, values=sorted(list(VALID_CATEGORIES)), width=110)
+       self.opt_cat.grid(row=0, column=5, padx=5, pady=5)
+
+       ctk.CTkLabel(self.input_frame, text="Weight (kg):").grid(row=1, column=0, padx=5, pady=5)
+       self.ent_weight = ctk.CTkEntry(self.input_frame, width=80)
+       self.ent_weight.grid(row=1, column=1, padx=5, pady=5)
+
+       ctk.CTkLabel(self.input_frame, text="Location:").grid(row=1, column=2, padx=5, pady=5)
+       self.ent_loc = ctk.CTkEntry(self.input_frame, width=150)
+       self.ent_loc.grid(row=1, column=3, columnspan=2, padx=5, pady=5)
+
+       self.btn_add = ctk.CTkButton(self.input_frame, text="Add/Update Dict Tuple", command=self.add_record_gui)
+       self.btn_add.grid(row=1, column=5, padx=5, pady=5)
+
+       self.btn_del = ctk.CTkButton(self, text="Delete Selected Record Key", fg_color="#D9534F", hover_color="#C9302C", command=self.del_record_gui)
+       self.btn_del.pack(pady=5)
+
+       self.display_frame = ctk.CTkScrollableFrame(self, width=800, height=280, label_text="Waste Records (Dictionary of Tuples)")
+       self.display_frame.pack(pady=10, padx=20)
+
+       self.selected_key = None
+       self.refresh_table()
+
+   def refresh_table(self):
+       for w in self.display_frame.winfo_children():
+           w.destroy()
+
+       hdr = f"{'Dict Key (ID)':<14} | {'Date':<12} | {'Category':<10} | {'Weight(kg)':<10} | {'Location':<18} | {'Status':<12}"
+       ctk.CTkLabel(self.display_frame, text=hdr, font=ctk.CTkFont(family="Courier", size=11, weight="bold")).pack(anchor="w", padx=5)
+
+       for rec_id, rec_tuple in self.sys.records_dict.items():
+           row_str = f"{rec_id:<14} | {rec_tuple[0]:<12} | {rec_tuple[1]:<10} | {rec_tuple[2]:<10.2f} | {rec_tuple[3]:<18} | {rec_tuple[4]:<12}"
+           btn = ctk.CTkButton(
+               self.display_frame,
+               text=row_str,
+               font=ctk.CTkFont(family="Courier", size=11),
+               fg_color="transparent",
+               text_color=("black", "white"),
+               hover_color=("#EBEBEB", "#333333"),
+               anchor="w",
+               command=lambda k=rec_id: self.select_key(k)
+           )
+           btn.pack(fill="x", padx=2, pady=1)
+
+   def select_key(self, key):
+       self.selected_key = key
+       messagebox.showinfo("Key Selected", f"Dict Key: '{key}'\nValue Tuple: {self.sys.records_dict[key]}")
+
+   def add_record_gui(self):
+       r_id = self.ent_id.get()
+       dt = self.ent_date.get()
+       cat = self.opt_cat.get()
+       loc = self.ent_loc.get()
+
+       try:
+           wt = float(self.ent_weight.get())
+       except ValueError:
+           messagebox.showerror("Error", "Weight must be a valid numeric value.")
+           return
+
+       success = self.sys.add_record(r_id, dt, cat, wt, loc)
+       if success:
+           messagebox.showinfo("Success", "Record tuple stored under dictionary key.")
+           self.refresh_table()
+       else:
+           messagebox.showerror("Error", "Invalid inputs.")
+
+   def del_record_gui(self):
+       if self.selected_key:
+           self.sys.delete_record(self.selected_key)
+           self.selected_key = None
+           self.refresh_table()
+           messagebox.showinfo("Deleted", "Dictionary key and tuple value removed.")
+       else:
+           messagebox.showwarning("Warning", "Select a record row first.")
+
+
+if __name__ == "__main__":
+   sys = WasteManagementSystem()
+   app = WasteGUI(sys)
+   app.mainloop()
